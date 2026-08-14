@@ -1,0 +1,168 @@
+---
+name: ApiE2E .NET CI/CD
+
+on:
+  pull_request:
+    paths:
+      - 'ApiE2ETestsWithDocker/**'
+      - '.github/workflows/api-e2e-dotnet-ci-cd.yml'
+  push:
+    branches:
+      - main
+      - development
+      - 'release/**'
+      - 'feature/**'
+    paths:
+      - 'ApiE2ETestsWithDocker/**'
+      - '.github/workflows/api-e2e-dotnet-ci-cd.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: Build, test, scan and publish immutable artifact
+    uses: vsharma4142/github-actions-templates/.github/workflows/reusable-dotnet-ci-security-artifact.yaml@migration/enterprise-dotnet-iis-pilot
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      runner: windows-latest
+      solution-path: ApiE2ETestsWithDocker/ApiE2ETestsWithDocker.sln
+      web-project-path: ApiE2ETestsWithDocker/WebApi/WebApi.csproj
+      test-project-path: ApiE2ETestsWithDocker/WebApi.Tests/WebApi.Tests.csproj
+      dotnet-version: '3.1.x'
+      build-configuration: Release
+      coverage-threshold: ${{ fromJSON(vars.UNIT_TEST_COVERAGE_MIN || '80') }}
+      max-high-vulnerabilities: ${{ fromJSON(vars.MAX_HIGH_VULNERABILITIES || '0') }}
+      max-critical-vulnerabilities: ${{ fromJSON(vars.MAX_CRITICAL_VULNERABILITIES || '0') }}
+      artifact-name: ApiE2E-WebApi
+      artifact-version-prefix: ${{ vars.ARTIFACT_VERSION_PREFIX || '1.0' }}
+      artifactory-repository: ${{ vars.ARTIFACTORY_REPOSITORY || 'dotnet-iis-generic-local' }}
+      checkmarx-command: ${{ vars.CHECKMARX_COMMAND || 'enterprise-checkmarx-scan' }}
+      snyk-command: ${{ vars.SNYK_COMMAND || 'enterprise-snyk-scan' }}
+      nexus-iq-command: ${{ vars.NEXUS_IQ_COMMAND || 'enterprise-nexus-iq-scan' }}
+      artifactory-command: ${{ vars.ARTIFACTORY_COMMAND || 'enterprise-artifactory-upload' }}
+
+  deploy-development:
+    name: Deploy Development
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    uses: vsharma4142/github-actions-templates/.github/workflows/reusable-iis-tower-deploy.yaml@migration/enterprise-dotnet-iis-pilot
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+      environment-name: development
+      artifact-name: ${{ needs.ci.outputs.artifact-name }}
+      artifact-version: ${{ needs.ci.outputs.artifact-version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      tower-job-template: ${{ vars.DEV_TOWER_JOB_TEMPLATE }}
+      vault-role: ${{ vars.DEV_VAULT_ROLE }}
+      vault-secret-path: ${{ vars.DEV_VAULT_SECRET_PATH }}
+      site-name: ${{ vars.DEV_IIS_SITE_NAME }}
+      app-pool-name: ${{ vars.DEV_IIS_APP_POOL }}
+      physical-path: ${{ vars.DEV_IIS_PHYSICAL_PATH }}
+      host-name: ${{ vars.DEV_IIS_HOST_NAME }}
+      https-port: ${{ fromJSON(vars.DEV_HTTPS_PORT || '443') }}
+      certificate-thumbprint: ${{ vars.DEV_SSL_CERTIFICATE_REF }}
+      authentication-mode: ${{ vars.DEV_AUTHENTICATION_MODE || 'Windows' }}
+      health-url: ${{ vars.DEV_HEALTH_URL }}
+      config-json: ${{ vars.DEV_CONFIG_JSON || '{}' }}
+      tower-command: ${{ vars.TOWER_COMMAND || 'enterprise-tower-deploy' }}
+      vault-command: ${{ vars.VAULT_COMMAND || 'enterprise-vault-read' }}
+
+  deploy-qa:
+    name: Promote to QA
+    needs: ci
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
+    uses: vsharma4142/github-actions-templates/.github/workflows/reusable-iis-tower-deploy.yaml@migration/enterprise-dotnet-iis-pilot
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+      environment-name: qa
+      artifact-name: ${{ needs.ci.outputs.artifact-name }}
+      artifact-version: ${{ needs.ci.outputs.artifact-version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      tower-job-template: ${{ vars.QA_TOWER_JOB_TEMPLATE }}
+      vault-role: ${{ vars.QA_VAULT_ROLE }}
+      vault-secret-path: ${{ vars.QA_VAULT_SECRET_PATH }}
+      site-name: ${{ vars.QA_IIS_SITE_NAME }}
+      app-pool-name: ${{ vars.QA_IIS_APP_POOL }}
+      physical-path: ${{ vars.QA_IIS_PHYSICAL_PATH }}
+      host-name: ${{ vars.QA_IIS_HOST_NAME }}
+      https-port: ${{ fromJSON(vars.QA_HTTPS_PORT || '443') }}
+      certificate-thumbprint: ${{ vars.QA_SSL_CERTIFICATE_REF }}
+      authentication-mode: ${{ vars.QA_AUTHENTICATION_MODE || 'Windows' }}
+      health-url: ${{ vars.QA_HEALTH_URL }}
+      config-json: ${{ vars.QA_CONFIG_JSON || '{}' }}
+      tower-command: ${{ vars.TOWER_COMMAND || 'enterprise-tower-deploy' }}
+      vault-command: ${{ vars.VAULT_COMMAND || 'enterprise-vault-read' }}
+
+  deploy-staging:
+    name: Promote to Staging
+    needs:
+      - ci
+      - deploy-qa
+    uses: vsharma4142/github-actions-templates/.github/workflows/reusable-iis-tower-deploy.yaml@migration/enterprise-dotnet-iis-pilot
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+      environment-name: staging
+      artifact-name: ${{ needs.ci.outputs.artifact-name }}
+      artifact-version: ${{ needs.ci.outputs.artifact-version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      tower-job-template: ${{ vars.STAGING_TOWER_JOB_TEMPLATE }}
+      vault-role: ${{ vars.STAGING_VAULT_ROLE }}
+      vault-secret-path: ${{ vars.STAGING_VAULT_SECRET_PATH }}
+      site-name: ${{ vars.STAGING_IIS_SITE_NAME }}
+      app-pool-name: ${{ vars.STAGING_IIS_APP_POOL }}
+      physical-path: ${{ vars.STAGING_IIS_PHYSICAL_PATH }}
+      host-name: ${{ vars.STAGING_IIS_HOST_NAME }}
+      https-port: ${{ fromJSON(vars.STAGING_HTTPS_PORT || '443') }}
+      certificate-thumbprint: ${{ vars.STAGING_SSL_CERTIFICATE_REF }}
+      authentication-mode: ${{ vars.STAGING_AUTHENTICATION_MODE || 'Windows' }}
+      health-url: ${{ vars.STAGING_HEALTH_URL }}
+      config-json: ${{ vars.STAGING_CONFIG_JSON || '{}' }}
+      tower-command: ${{ vars.TOWER_COMMAND || 'enterprise-tower-deploy' }}
+      vault-command: ${{ vars.VAULT_COMMAND || 'enterprise-vault-read' }}
+
+  deploy-production:
+    name: Promote to Production
+    needs:
+      - ci
+      - deploy-staging
+    uses: vsharma4142/github-actions-templates/.github/workflows/reusable-iis-tower-deploy.yaml@migration/enterprise-dotnet-iis-pilot
+    permissions:
+      contents: read
+      id-token: write
+    with:
+      runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
+      environment-name: production
+      artifact-name: ${{ needs.ci.outputs.artifact-name }}
+      artifact-version: ${{ needs.ci.outputs.artifact-version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      tower-job-template: ${{ vars.PROD_TOWER_JOB_TEMPLATE }}
+      vault-role: ${{ vars.PROD_VAULT_ROLE }}
+      vault-secret-path: ${{ vars.PROD_VAULT_SECRET_PATH }}
+      site-name: ${{ vars.PROD_IIS_SITE_NAME }}
+      app-pool-name: ${{ vars.PROD_IIS_APP_POOL }}
+      physical-path: ${{ vars.PROD_IIS_PHYSICAL_PATH }}
+      host-name: ${{ vars.PROD_IIS_HOST_NAME }}
+      https-port: ${{ fromJSON(vars.PROD_HTTPS_PORT || '443') }}
+      certificate-thumbprint: ${{ vars.PROD_SSL_CERTIFICATE_REF }}
+      authentication-mode: ${{ vars.PROD_AUTHENTICATION_MODE || 'Windows' }}
+      health-url: ${{ vars.PROD_HEALTH_URL }}
+      config-json: ${{ vars.PROD_CONFIG_JSON || '{}' }}
+      tower-command: ${{ vars.TOWER_COMMAND || 'enterprise-tower-deploy' }}
+      vault-command: ${{ vars.VAULT_COMMAND || 'enterprise-vault-read' }}
