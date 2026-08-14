@@ -60,9 +60,9 @@ jobs:
     with:
       runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
       environment-name: development
-      artifact-name: ${{ needs.ci.outputs.artifact-name }}
-      artifact-version: ${{ needs.ci.outputs.artifact-version }}
-      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      artifact-name: ${{ needs.ci.outputs.artifact_name }}
+      artifact-version: ${{ needs.ci.outputs.artifact_version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact_uri }}
       tower-job-template: ${{ vars.DEV_TOWER_JOB_TEMPLATE }}
       vault-role: ${{ vars.DEV_VAULT_ROLE }}
       vault-secret-path: ${{ vars.DEV_VAULT_SECRET_PATH }}
@@ -89,9 +89,9 @@ jobs:
     with:
       runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
       environment-name: qa
-      artifact-name: ${{ needs.ci.outputs.artifact-name }}
-      artifact-version: ${{ needs.ci.outputs.artifact-version }}
-      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      artifact-name: ${{ needs.ci.outputs.artifact_name }}
+      artifact-version: ${{ needs.ci.outputs.artifact_version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact_uri }}
       tower-job-template: ${{ vars.QA_TOWER_JOB_TEMPLATE }}
       vault-role: ${{ vars.QA_VAULT_ROLE }}
       vault-secret-path: ${{ vars.QA_VAULT_SECRET_PATH }}
@@ -112,6 +112,7 @@ jobs:
     needs:
       - ci
       - deploy-qa
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
     uses: vsharma4142/github-actions-templates/.github/workflows/reusable-iis-tower-deploy.yaml@migration/enterprise-dotnet-iis-pilot
     permissions:
       contents: read
@@ -119,9 +120,9 @@ jobs:
     with:
       runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
       environment-name: staging
-      artifact-name: ${{ needs.ci.outputs.artifact-name }}
-      artifact-version: ${{ needs.ci.outputs.artifact-version }}
-      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      artifact-name: ${{ needs.ci.outputs.artifact_name }}
+      artifact-version: ${{ needs.ci.outputs.artifact_version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact_uri }}
       tower-job-template: ${{ vars.STAGING_TOWER_JOB_TEMPLATE }}
       vault-role: ${{ vars.STAGING_VAULT_ROLE }}
       vault-secret-path: ${{ vars.STAGING_VAULT_SECRET_PATH }}
@@ -142,6 +143,7 @@ jobs:
     needs:
       - ci
       - deploy-staging
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/')
     uses: vsharma4142/github-actions-templates/.github/workflows/reusable-iis-tower-deploy.yaml@migration/enterprise-dotnet-iis-pilot
     permissions:
       contents: read
@@ -149,9 +151,9 @@ jobs:
     with:
       runner: ${{ vars.DEPLOY_RUNNER || 'ubuntu-latest' }}
       environment-name: production
-      artifact-name: ${{ needs.ci.outputs.artifact-name }}
-      artifact-version: ${{ needs.ci.outputs.artifact-version }}
-      artifact-uri: ${{ needs.ci.outputs.artifact-uri }}
+      artifact-name: ${{ needs.ci.outputs.artifact_name }}
+      artifact-version: ${{ needs.ci.outputs.artifact_version }}
+      artifact-uri: ${{ needs.ci.outputs.artifact_uri }}
       tower-job-template: ${{ vars.PROD_TOWER_JOB_TEMPLATE }}
       vault-role: ${{ vars.PROD_VAULT_ROLE }}
       vault-secret-path: ${{ vars.PROD_VAULT_SECRET_PATH }}
