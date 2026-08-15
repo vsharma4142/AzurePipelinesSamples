@@ -16,11 +16,13 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 
 function Enable-IISFeatureSafely {
     param([string]$FeatureName)
+
     $feature = Get-WindowsOptionalFeature -Online -FeatureName $FeatureName -ErrorAction SilentlyContinue
     if ($null -eq $feature) {
         Write-Warning "IIS feature '$FeatureName' is not available on this Windows edition; skipping."
         return
     }
+
     if ($feature.State -ne "Enabled") {
         Write-Host "Enabling $FeatureName ..."
         Enable-WindowsOptionalFeature -Online -FeatureName $FeatureName -All -NoRestart | Out-Null
@@ -28,25 +30,67 @@ function Enable-IISFeatureSafely {
 }
 
 $features = @(
-    "IIS-WebServerRole","IIS-WebServer","IIS-CommonHttpFeatures","IIS-StaticContent",
-    "IIS-DefaultDocument","IIS-HttpErrors","IIS-HttpRedirect","IIS-ApplicationDevelopment",
-    "IIS-NetFxExtensibility45","IIS-ASPNET45","IIS-ISAPIExtensions","IIS-ISAPIFilter",
-    "IIS-WebSockets","IIS-HealthAndDiagnostics","IIS-HttpLogging","IIS-RequestMonitor",
-    "IIS-Security","IIS-RequestFiltering","IIS-BasicAuthentication","IIS-WindowsAuthentication",
-    "IIS-Performance","IIS-HttpCompressionStatic","IIS-WebServerManagementTools","IIS-ManagementConsole"
+    "IIS-WebServerRole",
+    "IIS-WebServer",
+    "IIS-CommonHttpFeatures",
+    "IIS-StaticContent",
+    "IIS-DefaultDocument",
+    "IIS-HttpErrors",
+    "IIS-HttpRedirect",
+    "IIS-ApplicationDevelopment",
+    "IIS-NetFxExtensibility45",
+    "IIS-ASPNET45",
+    "IIS-ISAPIExtensions",
+    "IIS-ISAPIFilter",
+    "IIS-WebSockets",
+    "IIS-HealthAndDiagnostics",
+    "IIS-HttpLogging",
+    "IIS-RequestMonitor",
+    "IIS-Security",
+    "IIS-RequestFiltering",
+    "IIS-BasicAuthentication",
+    "IIS-WindowsAuthentication",
+    "IIS-Performance",
+    "IIS-HttpCompressionStatic",
+    "IIS-WebServerManagementTools",
+    "IIS-ManagementConsole",
+    "IIS-ManagementScriptingTools"
 )
-foreach ($feature in $features) { Enable-IISFeatureSafely $feature }
 
-Import-Module WebAdministration
+foreach ($feature in $features) {
+    Enable-IISFeatureSafely -FeatureName $feature
+}
+
+$appCmd = Join-Path $env:WINDIR "System32\inetsrv\appcmd.exe"
+if (-not (Test-Path $appCmd)) {
+    throw "IIS AppCmd.exe was not found at '$appCmd'. IIS management tools may not have finished installing. Reboot Windows and run the script again."
+}
+
 New-Item -Path $PhysicalPath -ItemType Directory -Force | Out-Null
 New-Item -Path "C:\MigrationLab\backups" -ItemType Directory -Force | Out-Null
 Set-Content -Path (Join-Path $PhysicalPath "index.html") -Encoding UTF8 -Value '<h1>IIS Migration Lab is running</h1>'
 
-if (-not (Test-Path "IIS:\AppPools\$AppPoolName")) {
-    New-WebAppPool -Name $AppPoolName | Out-Null
+Write-Host "Configuring IIS application pool '$AppPoolName' ..."
+$appPool = & $appCmd list apppool "/name:$AppPoolName"
+if (-not $appPool) {
+    & $appCmd add apppool "/name:$AppPoolName"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create IIS application pool '$AppPoolName'."
+    }
 }
-if (-not (Get-Website -Name $SiteName -ErrorAction SilentlyContinue)) {
-    New-Website -Name $SiteName -Port $SitePort -PhysicalPath $PhysicalPath -ApplicationPool $AppPoolName | Out-Null
+
+Write-Host "Configuring IIS site '$SiteName' on port $SitePort ..."
+$site = & $appCmd list site "/name:$SiteName"
+if (-not $site) {
+    & $appCmd add site "/name:$SiteName" "/bindings:http/*:$SitePort:" "/physicalPath:$PhysicalPath"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create IIS site '$SiteName'."
+    }
+}
+
+& $appCmd set app "$SiteName/" "/applicationPool:$AppPoolName"
+if ($LASTEXITCODE -ne 0) {
+    throw "Failed to assign application pool '$AppPoolName' to site '$SiteName'."
 }
 
 if ($EnableWinRM) {
@@ -55,9 +99,17 @@ if ($EnableWinRM) {
 }
 
 Start-Service W3SVC
-Write-Host "IIS lab ready at http://localhost:$SitePort/"
+
+Write-Host ""
+Write-Host "IIS lab ready."
+Write-Host "Test URL: http://localhost:$SitePort/"
 Write-Host "Physical path: $PhysicalPath"
 Write-Host "Backup path: C:\MigrationLab\backups"
-if (-not (Test-Path "$env:ProgramFiles\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll")) {
+Write-Host ""
+
+$aspNetCoreModule = "$env:ProgramFiles\IIS\Asp.Net Core Module\V2\aspnetcorev2.dll"
+if (-not (Test-Path $aspNetCoreModule)) {
     Write-Warning "ASP.NET Core Module not detected. Install the matching .NET Hosting Bundle after IIS is enabled."
+} else {
+    Write-Host "ASP.NET Core Module detected."
 }
