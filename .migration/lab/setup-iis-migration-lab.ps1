@@ -7,6 +7,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:RestartRequired = $false
 
 $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
@@ -25,7 +26,10 @@ function Enable-IISFeatureSafely {
 
     if ($feature.State -ne "Enabled") {
         Write-Host "Enabling $FeatureName ..."
-        Enable-WindowsOptionalFeature -Online -FeatureName $FeatureName -All -NoRestart | Out-Null
+        $result = Enable-WindowsOptionalFeature -Online -FeatureName $FeatureName -All -NoRestart
+        if ($result.RestartNeeded) {
+            $script:RestartRequired = $true
+        }
     }
 }
 
@@ -61,9 +65,24 @@ foreach ($feature in $features) {
     Enable-IISFeatureSafely -FeatureName $feature
 }
 
+if ($script:RestartRequired) {
+    Write-Host ""
+    Write-Warning "Windows reports that a restart is required to finish installing IIS components."
+    Write-Host "REBOOT WINDOWS NOW. After signing back in, open PowerShell as Administrator and run this same script again."
+    Write-Host "No IIS site configuration will be attempted until the restart is complete."
+    return
+}
+
 $appCmd = Join-Path $env:WINDIR "System32\inetsrv\appcmd.exe"
 if (-not (Test-Path $appCmd)) {
-    throw "IIS AppCmd.exe was not found at '$appCmd'. IIS management tools may not have finished installing. Reboot Windows and run the script again."
+    Write-Host ""
+    Write-Warning "IIS AppCmd.exe is still unavailable."
+    Write-Host "Expected path: $appCmd"
+    Write-Host "Current IIS feature states:"
+    Get-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole,IIS-WebServerManagementTools,IIS-ManagementScriptingTools |
+        Select-Object FeatureName, State |
+        Format-Table -AutoSize
+    throw "IIS management components are not fully installed. If you have already rebooted, send the feature-state table above for diagnosis."
 }
 
 New-Item -Path $PhysicalPath -ItemType Directory -Force | Out-Null
