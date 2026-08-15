@@ -82,7 +82,8 @@ if (-not $appPool) {
 Write-Host "Configuring IIS site '$SiteName' on port $SitePort ..."
 $site = & $appCmd list site "/name:$SiteName"
 if (-not $site) {
-    & $appCmd add site "/name:$SiteName" "/bindings:http/*:$SitePort:" "/physicalPath:$PhysicalPath"
+    $binding = "http/*:${SitePort}:"
+    & $appCmd add site "/name:$SiteName" "/bindings:$binding" "/physicalPath:$PhysicalPath"
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create IIS site '$SiteName'."
     }
